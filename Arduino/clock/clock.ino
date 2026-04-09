@@ -9,6 +9,8 @@
 #include <TzDbLookup.h>
 #include <ESPmDNS.h>
 #include <LittleFS.h>
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
 
 #define NUM_LEDS_PER_SEGMENT 1
 #define NUM_LEDS_HOUR (14 * NUM_LEDS_PER_SEGMENT) + 1
@@ -55,22 +57,11 @@ p/SgguMh1YQdc4acLa/KNJvxn7kjNuK8YAOdgLOaVsjh4rsUecrNIdSUtUlD
 )string_literal";
 const char* prefsNamespace = "clock-prefs";
 
-WebServer server(80);
+static AsyncWebServer server(80);
+static AsyncWebSocketMessageHandler wsHandler;
+static AsyncWebSocket ws("/ws", wsHandler.eventHandler());
 Preferences prefs;
 hp_BH1750 BH1750;
-
-// TODO remove after switching to ESPAsyncWebServer, which supports server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
-void handleRoot() {
-  File file = LittleFS.open("/index.html", "r");
-  
-  if (!file) {
-    server.send(404, "text/plain", "File not found");
-    return;
-  }
-
-  server.streamFile(file, "text/html");
-  file.close();
-}
 
 /**
   * @brief Generic handler for server requests tied to bool preferences.
@@ -79,8 +70,8 @@ void handleRoot() {
   * @param postEnableCallback Additional logic to run after setting preference to true.
   * @param postDisableCallback Additional logic to run after setting preference to false.
   */
-void handleBoolPreference(const char* key, bool& boolRef, std::function<void()> postEnableCallback = nullptr, std::function<void()> postDisableCallback = nullptr) {
-  String enabled = server.arg("enabled");
+void handleBoolPreference(AsyncWebServerRequest *request, const char* key, bool& boolRef, std::function<void()> postEnableCallback = nullptr, std::function<void()> postDisableCallback = nullptr) {
+  String enabled = request->getParam("enabled")->value();
   enabled.toLowerCase();
   if (enabled == "true") {
     if (!boolRef) {
@@ -97,7 +88,7 @@ void handleBoolPreference(const char* key, bool& boolRef, std::function<void()> 
       Serial.print(key);
       Serial.println(" already enabled");
     }
-    server.send(204);
+    request->send(204);
   } else if (enabled == "false") {
     if (boolRef) {
       Serial.print(key);
@@ -113,13 +104,13 @@ void handleBoolPreference(const char* key, bool& boolRef, std::function<void()> 
       Serial.print(key);
       Serial.println(" already disabled");
     }
-    server.send(204);
+    request->send(204);
   } else {
-    server.send(400);
+    request->send(400);
   }
 }
 
-void handleSysInfo() {
+void handleSysInfo(AsyncWebServerRequest *request) {
   String result;
 
   result += "{\n";
@@ -131,8 +122,9 @@ void handleSysInfo() {
   result += "  \"time\": \"" + String(time(nullptr)) + "\"\n";
   result += "}";
 
-  server.sendHeader("Cache-Control", "no-cache");
-  server.send(200, "application/json; charset=utf-8", result);
+  AsyncWebServerResponse *response = request->beginResponse(200, "application/json; charset=utf-8", result);
+  response->addHeader("Cache-Control", "no-cache");
+  request->send(response);
 }  // handleSysInfo()
 
 /**
@@ -323,12 +315,12 @@ void setup() {
 
   server.on("/api/sysinfo", HTTP_GET, handleSysInfo);
   // curl -X PUT "http://{{IPADDRESS}}/api/color?h=128&s=255&v=128"
-  server.on("/api/color", HTTP_PUT, []() {
-    String h = server.arg("h");  // 0-255
-    String s = server.arg("s");  // 0-255
-    String v = server.arg("v");  // 0-255
+  server.on("/api/color", HTTP_PUT, [](AsyncWebServerRequest *request) {
+    String h = request->getParam("h")->value();  // 0-255
+    String s = request->getParam("s")->value();  // 0-255
+    String v = request->getParam("v")->value();  // 0-255
     Serial.print("PUT ");
-    Serial.print(server.uri());
+    Serial.print(request->url());
     Serial.print("?h=");
     Serial.print(h);
     Serial.print("&s=");
@@ -337,12 +329,12 @@ void setup() {
     Serial.println(v);
     // TODO validation
     setColor(h.toInt(), s.toInt(), v.toInt());
-    server.send(204);
+    request->send(204);
   });
   // curl -X PUT "http://{{IPADDRESS}}/api/rainbow?enabled=true"
-  server.on("/api/rainbow", HTTP_PUT, []() {
+  server.on("/api/rainbow", HTTP_PUT, [](AsyncWebServerRequest *request) {
     handleBoolPreference(
-      "rainbow", rainbowEnabled, []() {
+      request, "rainbow", rainbowEnabled, []() {
         // post-enable callback logic: this is needed because when we first start rainbow mode, we want the hue offset to be 0 so that it starts transitioning from the static color
         rainbowHueOffset = 0;
       },
@@ -354,21 +346,21 @@ void setup() {
       });
   });
   // curl -X PUT "http://{{IPADDRESS}}/api/blink?enabled=true"
-  server.on("/api/blink", HTTP_PUT, []() {
-    handleBoolPreference("blink", blinkEnabled);
+  server.on("/api/blink", HTTP_PUT, [](AsyncWebServerRequest *request) {
+    handleBoolPreference(request, "blink", blinkEnabled);
   });
   // curl -X PUT "http://{{IPADDRESS}}/api/twelveHour?enabled=true"
-  server.on("/api/twelveHour", HTTP_PUT, []() {
-    handleBoolPreference("twelveHour", twelveHour);
+  server.on("/api/twelveHour", HTTP_PUT, [](AsyncWebServerRequest *request) {
+    handleBoolPreference(request, "twelveHour", twelveHour);
   });
   // curl -X PUT "http://{{IPADDRESS}}/api/overrideTimeZone?value=America/Chicago"
-  server.on("/api/overrideTimeZone", HTTP_PUT, []() {
-    String overrideTZ = server.arg("value");
+  server.on("/api/overrideTimeZone", HTTP_PUT, [](AsyncWebServerRequest *request) {
+    String overrideTZ = request->getParam("value")->value();
 
     const char* posixTz = TzDbLookup::getPosix(overrideTZ.c_str());
     if (!posixTz) {
       Serial.println("invalid/unknown time zone ID");
-      server.send(400);
+      request->send(400);
       return;
     }
 
@@ -386,10 +378,10 @@ void setup() {
     prefs.putString("overrideTZ", overrideTZ);
     prefs.end();
 
-    server.send(204);
+    request->send(204);
   });
   // curl -X DELETE "http://{{IPADDRESS}}/api/overrideTimeZone"
-  server.on("/api/overrideTimeZone", HTTP_DELETE, []() {
+  server.on("/api/overrideTimeZone", HTTP_DELETE, [](AsyncWebServerRequest *request) {
     // remove preference
     prefs.begin(prefsNamespace, false);  // open in read/write mode
     if (prefs.isKey("overrideTZ")) {
@@ -399,7 +391,7 @@ void setup() {
     } else {
       Serial.println("overrideTZ not found--nothing to do");
       prefs.end();
-      server.send(204);
+      request->send(204);
       return;
     }
 
@@ -417,10 +409,10 @@ void setup() {
     tzset();                   // apply the change
     printTime();
 
-    server.send(204);
+    request->send(204);
   });
   // static file handler
-  server.on("/", handleRoot);
+  server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
   server.begin();
 
   // turn off built in LED
@@ -450,8 +442,6 @@ void printTime() {
 
 boolean first = true;
 void loop() {
-  server.handleClient();
-
   if (first) {  // super dramatic fade in effect
     fading = true;
     first = false;
