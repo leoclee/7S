@@ -244,9 +244,9 @@ void setup() {
   Serial.println(twelveHour ? "true" : "false");
 
   // match the fade in color's hue and saturation -- this is needed to avoid fading across colors if starting from 0,0,0
-  currentColor.hue = toColor.hue;
-  currentColor.saturation = toColor.saturation;
-  currentColor.value = 0;
+  fromColor.hue = toColor.hue;
+  fromColor.saturation = toColor.saturation;
+  fromColor.value = 0;
 
   //WiFiManager, Local intialization. Once its business is done, there is no need to keep it around
   WiFiManager wm;
@@ -484,7 +484,7 @@ void loop() {
   }
 
   // Server-Sent Events (SSE) heartbeat
-  EVERY_N_BSECONDS(3) {
+  EVERY_N_BSECONDS(15) {
     uint32_t now = millis();
     events.send(String("💓 ") + now, "heartbeat", now);
   }
