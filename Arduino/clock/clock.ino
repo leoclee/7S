@@ -196,6 +196,11 @@ String getIanaTimeZoneId() {
   return result;
 }
 
+void wifiManagerConfigModeCallback(WiFiManager* wiFiManager) {
+  ledsBuiltin[0] = CRGB::Blue;
+  FastLED.show();
+}
+
 void setup() {
   Serial.begin(115200);
 
@@ -262,10 +267,14 @@ void setup() {
   // if empty will auto generate SSID, if password is blank it will be anonymous AP (wm.autoConnect())
   // then goes into a blocking loop awaiting configuration and will return success result
 
+  wm.setAPCallback(wifiManagerConfigModeCallback);
+
+  char chipIdStr[10];
+  uint64_t chipid = ESP.getEfuseMac();                                       // Get the 64-bit Chip ID from the ESP32 hardware
+  snprintf(chipIdStr, sizeof(chipIdStr), "%08X", (uint32_t)(chipid >> 32));  // convert the lower 4 bytes to hex
+  String customSSID = "7SClock-" + String(chipIdStr);                        // Results in "7SClock-1234ABCD
   bool res;
-  // res = wm.autoConnect(); // auto generated AP name from chipid
-  res = wm.autoConnect("AutoConnectAP");  // anonymous ap
-  // res = wm.autoConnect("AutoConnectAP", "password");  // password protected ap
+  res = wm.autoConnect(customSSID.c_str());
 
   if (!res) {
     Serial.println("Failed to connect");
@@ -431,11 +440,11 @@ void setup() {
 
   // SSE (Server-Sent Events)
   events.onConnect([](AsyncEventSourceClient* client) {
-    Serial.printf("SSE Client connected!");
+    Serial.println("SSE Client connected!");
     client->send(getState(), "state", millis(), 1000);
   });
   events.onDisconnect([](AsyncEventSourceClient* client) {
-    Serial.printf("SSE Client disconnected!");
+    Serial.println("SSE Client disconnected!");
   });
   server.addHandler(&events);
 

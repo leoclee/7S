@@ -21,3 +21,9 @@ This is the Arduino code for a clock which uses the [LOLIN C3 Mini](https://www.
    - Sketch > Upload
 9. Upload the data files using arduino-littlefs-upload ([steps](https://github.com/earlephilhower/arduino-littlefs-upload?tab=readme-ov-file#usage-uploading-a-filesystem-to-the-device))
    - Note that you will not be able to upload files while the Serial Monitor is active
+
+# Startup States
+While starting up, the built-in WS2812B RGB LED on the C3 Mini will light solid in various colors to indicate the state  
+1. 🔴 Load preferences, set up LEDs, initialize sensors
+2. 🔵 Captive portal via access point awaiting WiFi setup (look for open WiFi SSID 7SClock-XXXXXXXX)
+3. 🟢 IP-based time zone detection, NTP sync
