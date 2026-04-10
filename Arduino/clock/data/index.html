@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>Clock</title>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css"/>
+    <link href="style.css" rel="stylesheet"/>
+    <script>
+        // Check if OS is in dark mode
+        if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+          document.documentElement.setAttribute('data-theme', 'dark');
+        } else {
+          document.documentElement.setAttribute('data-theme', 'light');
+        }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="script.js" defer></script>
+</head>
+<body>
+<form class="container mx-auto px-4">
+    <div class="grid grid-cols-[90px_1fr] items-start gap-4">
+        <label class="label justify-end" for="hueRange">Hue</label>
+        <input id="hueRange" type="range" min="0" max="255" value="128"
+               class="w-full range range-xl text-blue-300 [--range-fill:0]"/>
+
+        <label class="label justify-end" for="satRange">Saturation</label>
+        <input id="satRange" type="range" min="0" max="255" value="128"
+               class="w-full range range-xl text-blue-300 [--range-fill:0]"/>
+
+        <label class="label justify-end" for="valRange">Value</label>
+        <input id="valRange" type="range" min="0" max="255" value="128"
+               class="w-full range range-xl text-blue-300 [--range-fill:0]"/>
+
+        <label class="label justify-end pt-1" for="rainbow">Rainbow</label>
+        <input id="rainbow" type="checkbox" class="toggle toggle-xl"/>
+
+        <label class="label justify-end pt-1" for="blink">Blink</label>
+        <input id="blink" type="checkbox" class="toggle toggle-xl"/>
+
+        <label class="label justify-end pt-1" for="twelveHour">12-Hour</label>
+        <input id="twelveHour" type="checkbox" class="toggle toggle-xl"/>
+
+        <label class="label justify-end pt-1" for="timeZone">Time Zone</label>
+        <div class="flex-wrap">
+            <select id="timeZone" class="select">
+                <option>✨ Automatic</option>
+            </select>
+            <button id="tzDetect" class="btn" type="button">Detect</button>
+        </div>
+    </div>
+</form>
+</body>
+</html>

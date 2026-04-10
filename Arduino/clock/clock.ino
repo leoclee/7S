@@ -9,7 +9,7 @@
 #include <TzDbLookup.h>
 #include <ESPmDNS.h>
 #include <LittleFS.h>
-#include <AsyncTCP.h>
+#include <AsyncTCP.h>  // needed for ESPAsyncWebServer
 #include <ESPAsyncWebServer.h>
 
 #define NUM_LEDS_PER_SEGMENT 1
@@ -36,6 +36,7 @@ bool blinkEnabled = false;     // true to indicate half-second colon blinking
 bool rainbowEnabled = false;   // true to slowly change hues instead of the static selected color
 uint8_t rainbowHueOffset = 0;  // used to keep track of hue offset when rainbow color mode enabled
 bool twelveHour = false;       // true: 12-hour format; false: 24-hour/military format; 24-hour time format is more popular worldwide
+String timeZoneState = "";     // IANA time zone ID to maintain state ("": auto, even though a real IANA time zone ID might be in use)
 
 // This is a Google Trust Services cert, the root Certificate Authority that
 // signed the server certificate for https://ipwho.is This certificate is
@@ -58,8 +59,7 @@ p/SgguMh1YQdc4acLa/KNJvxn7kjNuK8YAOdgLOaVsjh4rsUecrNIdSUtUlD
 const char* prefsNamespace = "clock-prefs";
 
 static AsyncWebServer server(80);
-static AsyncWebSocketMessageHandler wsHandler;
-static AsyncWebSocket ws("/ws", wsHandler.eventHandler());
+static AsyncEventSource events("/events");
 Preferences prefs;
 hp_BH1750 BH1750;
 
@@ -70,7 +70,7 @@ hp_BH1750 BH1750;
   * @param postEnableCallback Additional logic to run after setting preference to true.
   * @param postDisableCallback Additional logic to run after setting preference to false.
   */
-void handleBoolPreference(AsyncWebServerRequest *request, const char* key, bool& boolRef, std::function<void()> postEnableCallback = nullptr, std::function<void()> postDisableCallback = nullptr) {
+void handleBoolPreference(AsyncWebServerRequest* request, const char* key, bool& boolRef, std::function<void()> postEnableCallback = nullptr, std::function<void()> postDisableCallback = nullptr) {
   String enabled = request->getParam("enabled")->value();
   enabled.toLowerCase();
   if (enabled == "true") {
@@ -84,6 +84,8 @@ void handleBoolPreference(AsyncWebServerRequest *request, const char* key, bool&
       if (postEnableCallback) {
         postEnableCallback();
       }
+
+      sendState();
     } else {
       Serial.print(key);
       Serial.println(" already enabled");
@@ -100,6 +102,8 @@ void handleBoolPreference(AsyncWebServerRequest *request, const char* key, bool&
       if (postDisableCallback) {
         postDisableCallback();
       }
+
+      sendState();
     } else {
       Serial.print(key);
       Serial.println(" already disabled");
@@ -110,7 +114,7 @@ void handleBoolPreference(AsyncWebServerRequest *request, const char* key, bool&
   }
 }
 
-void handleSysInfo(AsyncWebServerRequest *request) {
+void handleSysInfo(AsyncWebServerRequest* request) {
   String result;
 
   result += "{\n";
@@ -122,7 +126,7 @@ void handleSysInfo(AsyncWebServerRequest *request) {
   result += "  \"time\": \"" + String(time(nullptr)) + "\"\n";
   result += "}";
 
-  AsyncWebServerResponse *response = request->beginResponse(200, "application/json; charset=utf-8", result);
+  AsyncWebServerResponse* response = request->beginResponse(200, "application/json; charset=utf-8", result);
   response->addHeader("Cache-Control", "no-cache");
   request->send(response);
 }  // handleSysInfo()
@@ -214,7 +218,7 @@ void setup() {
   FastLED.show();
 
   // Open Preferences
-  prefs.begin(prefsNamespace, false); // false = read/write
+  prefs.begin(prefsNamespace, false);  // false = read/write
   uint8_t colorPref[3] = { 0, 0, 0 };
   size_t bytesRead = prefs.getBytes("color", colorPref, 3);
   if (bytesRead == 3) {
@@ -258,7 +262,7 @@ void setup() {
 
   bool res;
   // res = wm.autoConnect(); // auto generated AP name from chipid
-  res = wm.autoConnect("AutoConnectAP"); // anonymous ap
+  res = wm.autoConnect("AutoConnectAP");  // anonymous ap
   // res = wm.autoConnect("AutoConnectAP", "password");  // password protected ap
 
   if (!res) {
@@ -286,9 +290,11 @@ void setup() {
     timeZoneId = prefs.getString("overrideTZ");
     Serial.print("overrideTZ=");
     Serial.println(timeZoneId);
+    timeZoneState = timeZoneId;
   } else {
     Serial.println("overrideTZ not set");
     timeZoneId = getIanaTimeZoneId();
+    timeZoneState = "";
   }
   const char* posixTz = TzDbLookup::getPosix(timeZoneId.c_str());
   if (!posixTz) {
@@ -315,7 +321,7 @@ void setup() {
 
   server.on("/api/sysinfo", HTTP_GET, handleSysInfo);
   // curl -X PUT "http://{{IPADDRESS}}/api/color?h=128&s=255&v=128"
-  server.on("/api/color", HTTP_PUT, [](AsyncWebServerRequest *request) {
+  server.on("/api/color", HTTP_PUT, [](AsyncWebServerRequest* request) {
     String h = request->getParam("h")->value();  // 0-255
     String s = request->getParam("s")->value();  // 0-255
     String v = request->getParam("v")->value();  // 0-255
@@ -332,7 +338,7 @@ void setup() {
     request->send(204);
   });
   // curl -X PUT "http://{{IPADDRESS}}/api/rainbow?enabled=true"
-  server.on("/api/rainbow", HTTP_PUT, [](AsyncWebServerRequest *request) {
+  server.on("/api/rainbow", HTTP_PUT, [](AsyncWebServerRequest* request) {
     handleBoolPreference(
       request, "rainbow", rainbowEnabled, []() {
         // post-enable callback logic: this is needed because when we first start rainbow mode, we want the hue offset to be 0 so that it starts transitioning from the static color
@@ -346,15 +352,15 @@ void setup() {
       });
   });
   // curl -X PUT "http://{{IPADDRESS}}/api/blink?enabled=true"
-  server.on("/api/blink", HTTP_PUT, [](AsyncWebServerRequest *request) {
+  server.on("/api/blink", HTTP_PUT, [](AsyncWebServerRequest* request) {
     handleBoolPreference(request, "blink", blinkEnabled);
   });
   // curl -X PUT "http://{{IPADDRESS}}/api/twelveHour?enabled=true"
-  server.on("/api/twelveHour", HTTP_PUT, [](AsyncWebServerRequest *request) {
+  server.on("/api/twelveHour", HTTP_PUT, [](AsyncWebServerRequest* request) {
     handleBoolPreference(request, "twelveHour", twelveHour);
   });
   // curl -X PUT "http://{{IPADDRESS}}/api/overrideTimeZone?value=America/Chicago"
-  server.on("/api/overrideTimeZone", HTTP_PUT, [](AsyncWebServerRequest *request) {
+  server.on("/api/overrideTimeZone", HTTP_PUT, [](AsyncWebServerRequest* request) {
     String overrideTZ = request->getParam("value")->value();
 
     const char* posixTz = TzDbLookup::getPosix(overrideTZ.c_str());
@@ -363,6 +369,9 @@ void setup() {
       request->send(400);
       return;
     }
+
+    timeZoneState = overrideTZ;
+    sendState();
 
     // update time zone info
     Serial.print("Synchronize NTP using tz ");
@@ -381,7 +390,7 @@ void setup() {
     request->send(204);
   });
   // curl -X DELETE "http://{{IPADDRESS}}/api/overrideTimeZone"
-  server.on("/api/overrideTimeZone", HTTP_DELETE, [](AsyncWebServerRequest *request) {
+  server.on("/api/overrideTimeZone", HTTP_DELETE, [](AsyncWebServerRequest* request) {
     // remove preference
     prefs.begin(prefsNamespace, false);  // open in read/write mode
     if (prefs.isKey("overrideTZ")) {
@@ -394,6 +403,9 @@ void setup() {
       request->send(204);
       return;
     }
+
+    timeZoneState = "";
+    sendState();
 
     // attempt to get time zone ID from IP
     String timeZoneId = getIanaTimeZoneId();
@@ -413,6 +425,17 @@ void setup() {
   });
   // static file handler
   server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
+
+  // SSE (Server-Sent Events)
+  events.onConnect([](AsyncEventSourceClient* client) {
+    Serial.printf("SSE Client connected!");
+    client->send(getState(), "state", millis(), 1000);
+  });
+  events.onDisconnect([](AsyncEventSourceClient* client) {
+    Serial.printf("SSE Client disconnected!");
+  });
+  server.addHandler(&events);
+
   server.begin();
 
   // turn off built in LED
@@ -458,6 +481,12 @@ void loop() {
   if (BH1750.hasValue()) {
     float lux = BH1750.getLux();
     BH1750.start();
+  }
+
+  // Server-Sent Events (SSE) heartbeat
+  EVERY_N_BSECONDS(3) {
+    uint32_t now = millis();
+    events.send(String("💓 ") + now, "heartbeat", now);
   }
 }
 
@@ -522,6 +551,8 @@ void setColor(uint8_t hue, uint8_t saturation, uint8_t value) {
   toColor.value = value;
   lerp = 0;
   fading = true;
+
+  sendState();
 }
 
 // sets the current color based on fade, rainbow, etc.
@@ -560,4 +591,40 @@ void saveBoolPreference(const char* key, bool value) {
   prefs.begin(prefsNamespace, false);  // open in read/write mode
   prefs.putBool(key, value);
   prefs.end();
+}
+
+/**
+ * @return A JSON String representation of the current state.
+ */
+String getState() {
+  String stateJson;
+  stateJson += "{\"color\":{\"h\":";
+  stateJson += toColor.hue;
+  stateJson += ",\"s\":";
+  stateJson += toColor.saturation;
+  stateJson += ",\"v\":";
+  stateJson += toColor.value;
+  stateJson += "},\"rainbow\":";
+  stateJson += rainbowEnabled ? "true" : "false";
+  stateJson += ",\"blink\":";
+  stateJson += blinkEnabled ? "true" : "false";
+  stateJson += ",\"twelveHour\":";
+  stateJson += twelveHour ? "true" : "false";
+  stateJson += ",\"timeZone\":";
+  if (timeZoneState == "") {
+    stateJson += "null";
+  } else {
+    stateJson += "\"";
+    stateJson += timeZoneState;
+    stateJson += "\"";
+  }
+  stateJson += "}";
+  return stateJson;
+}
+
+/**
+ * @brief Notifies connected clients of the current state after a change.
+ */
+void sendState() {
+  events.send(getState(), "state", millis());
 }
