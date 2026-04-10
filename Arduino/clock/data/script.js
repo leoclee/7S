@@ -91,8 +91,10 @@ tzDetect.addEventListener("click", () => {
         alert("unable to detect time zone");
         return;
     }
-    timeZoneSelect.value = browserTz;
-    timeZoneSelect.dispatchEvent(new Event('change'));
+    if (browserTz != timeZoneSelect.value) {
+        timeZoneSelect.value = browserTz;
+        timeZoneSelect.dispatchEvent(new Event('change'));
+    }
 });
 const timeZones = Intl.supportedValuesOf('timeZone');
 for (const timeZone of timeZones) {
