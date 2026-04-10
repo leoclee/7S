@@ -1,8 +1,7 @@
-#include <WiFiManager.h>  // https://github.com/tzapu/WiFiManager
+#include <WiFiManager.h>
 #include <HTTPClient.h>
 #include <WifiClientSecure.h>
 #include <ArduinoJson.h>
-#include <time.h>
 #include <Preferences.h>
 #include <FastLED.h>
 #include <hp_BH1750.h>
@@ -117,13 +116,16 @@ void handleBoolPreference(AsyncWebServerRequest* request, const char* key, bool&
 void handleSysInfo(AsyncWebServerRequest* request) {
   String result;
 
-  result += "{\n";
-  result += "  \"Chip Model\": \"" + String(ESP.getChipModel()) + "\",\n";
-  result += "  \"Chip Cores\": \"" + String(ESP.getChipCores()) + "\",\n";
-  result += "  \"Chip Revision\": \"" + String(ESP.getChipRevision()) + "\",\n";
-  result += "  \"flashSize\": \"" + String(ESP.getFlashChipSize()) + "\",\n";
-  result += "  \"freeHeap\": \"" + String(ESP.getFreeHeap()) + "\",\n";
-  result += "  \"time\": \"" + String(time(nullptr)) + "\"\n";
+  result += "{";
+  result += "\"Chip Model\":\"" + String(ESP.getChipModel()) + "\",";
+  result += "\"Chip Cores\":\"" + String(ESP.getChipCores()) + "\",";
+  result += "\"Chip Revision\":\"" + String(ESP.getChipRevision()) + "\",";
+  result += "\"flashSize\":\"" + String(ESP.getFlashChipSize()) + "\",";
+  result += "\"freeHeap\":\"" + String(ESP.getFreeHeap()) + "\",";
+  result += "\"uptime\":";
+  result += millis();
+  result += ",";
+  result += "\"time\":" + String(time(nullptr)) + "";
   result += "}";
 
   AsyncWebServerResponse* response = request->beginResponse(200, "application/json; charset=utf-8", result);
@@ -319,6 +321,7 @@ void setup() {
   Serial.println(time(nullptr));
   printTime();
 
+  // curl "http://{{IPADDRESS}}/api/sysinfo"
   server.on("/api/sysinfo", HTTP_GET, handleSysInfo);
   // curl -X PUT "http://{{IPADDRESS}}/api/color?h=128&s=255&v=128"
   server.on("/api/color", HTTP_PUT, [](AsyncWebServerRequest* request) {
