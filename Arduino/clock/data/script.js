@@ -103,7 +103,7 @@ for (const timeZone of timeZones) {
 }
 timeZoneSelect.addEventListener('change', () => {
     let tz = timeZoneSelect.value;
-    console.log('tz change: ' + tz);
+    console.log('tz change:', tz);
 
     if (tz === timeZoneSelect.options[0].value) {
         // remove time zone
@@ -152,6 +152,6 @@ if (!!window.EventSource) {
     }
   }, false);
   source.addEventListener('heartbeat', function(e) {
-    console.log("heartbeat", e.data);
+    console.log(new Date().toLocaleString(), " heartbeat", e.data);
   }, false);
 }
