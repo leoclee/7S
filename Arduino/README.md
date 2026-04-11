@@ -10,7 +10,6 @@ This is the Arduino code for a clock which uses the [LOLIN C3 Mini](https://www.
    - [Arduinojson](https://arduinojson.org) (by Benoit Blanchon)
    - [FastLED](https://github.com/FastLED/FastLED) (by Daniel Garcia)
    - [hp_BH1750](https://github.com/Starmbi/hp_BH1750) (by Stefan Armborst)
-   - [TzDbLookup](https://github.com/anonymousaga/TzDbLookup) (by anonymousaga)
    - [Async TCP](https://github.com/ESP32Async/AsyncTCP) (by ESP32Async)
    - [ESP Async WebServer](https://github.com/ESP32Async/ESPAsyncWebServer) (by ESP32Async)
 4. Install [arduino-littlefs-upload](https://github.com/earlephilhower/arduino-littlefs-upload?tab=readme-ov-file#installation)
