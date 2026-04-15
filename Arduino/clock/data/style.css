@@ -1,9 +1,9 @@
 /* Firefox */
 input[type=range]::-moz-range-track {
-  background: var(--custom-bg, var(--range-bg));
+    background: var(--custom-bg, var(--range-bg));
 }
 
 /* other */
 input[type=range]::-webkit-slider-runnable-track {
-  background: var(--custom-bg, var(--range-bg));
+    background: var(--custom-bg, var(--range-bg));
 }

@@ -1,23 +1,23 @@
 // https://codeburst.io/throttling-and-debouncing-in-javascript-b01cad5c8edf
 const throttle = (func, limit) => {
-  let lastFunc
-  let lastRan
-  return function() {
-    const context = this
-    const args = arguments
-    if (!lastRan) {
-      func.apply(context, args)
-      lastRan = Date.now()
-    } else {
-      clearTimeout(lastFunc)
-      lastFunc = setTimeout(function() {
-        if ((Date.now() - lastRan) >= limit) {
-          func.apply(context, args)
-          lastRan = Date.now()
+    let lastFunc
+    let lastRan
+    return function () {
+        const context = this
+        const args = arguments
+        if (!lastRan) {
+            func.apply(context, args)
+            lastRan = Date.now()
+        } else {
+            clearTimeout(lastFunc)
+            lastFunc = setTimeout(function () {
+                if ((Date.now() - lastRan) >= limit) {
+                    func.apply(context, args)
+                    lastRan = Date.now()
+                }
+            }, limit - (Date.now() - lastRan))
         }
-      }, limit - (Date.now() - lastRan))
     }
-  }
 }
 
 const hueRange = document.getElementById("hueRange");
@@ -25,10 +25,10 @@ const satRange = document.getElementById("satRange");
 const valRange = document.getElementById("valRange");
 
 function updateBackground() {
-    let hueScaled = hueRange.value*360/255;
-    let satScaled = satRange.value*100/255;
+    let hueScaled = hueRange.value * 360 / 255;
+    let satScaled = satRange.value * 100 / 255;
     satRange.style.setProperty('--custom-bg', "linear-gradient(to right,#FFF,hsl(" + hueScaled + ",100%,50%))");
-    valRange.style.setProperty('--custom-bg', "linear-gradient(to right,#000,hsl(" + hueScaled + ",100%," + (100 - satScaled/2) + "%))");
+    valRange.style.setProperty('--custom-bg', "linear-gradient(to right,#000,hsl(" + hueScaled + ",100%," + (100 - satScaled / 2) + "%))");
 }
 
 function changeColor() {
@@ -61,7 +61,6 @@ hueRange.style.setProperty('--custom-bg', hueRangeBackground);
 updateBackground();
 
 
-
 const rainbow = document.getElementById("rainbow");
 rainbow.addEventListener('change', () => {
     let xhr = new XMLHttpRequest();
@@ -80,7 +79,6 @@ blink.addEventListener('change', () => {
     xhr.open("PUT", "api/blink?enabled=" + blink.checked);
     xhr.send(this.value);
 });
-
 
 
 const timeZoneSelect = document.getElementById("timeZone");
@@ -122,38 +120,38 @@ timeZoneSelect.addEventListener('change', () => {
 
 // Server-Sent Events (SSE)
 if (!!window.EventSource) {
-  var source = new EventSource('/events');
-  source.addEventListener('open', function(e) {
-    console.log("Events Connected");
-  }, false);
-  source.addEventListener('error', function(e) {
-    if (e.target.readyState != EventSource.OPEN) {
-      console.log("Events Disconnected");
-    }
-  }, false);
-  source.addEventListener('state', function(e) {
-    console.log("state", e.data);
-    try {
-        // {"color":{"h":16,"s":209,"v":192},"rainbow":false,"blink":false,"twelveHour":false,"timeZone":"America/Chicago"}
-        const state = JSON.parse(e.data);
-        hueRange.value = state['color']['h'];
-        satRange.value = state['color']['s'];
-        valRange.value = state['color']['v'];
-        updateBackground();
-        if (state['timeZone']) {
-            timeZoneSelect.value = state['timeZone'];
-        } else {
-            // no time zone set--default to Automatic
-            timeZoneSelect.value = timeZoneSelect.options[0].value;
+    var source = new EventSource('/events');
+    source.addEventListener('open', function (e) {
+        console.log("Events Connected");
+    }, false);
+    source.addEventListener('error', function (e) {
+        if (e.target.readyState != EventSource.OPEN) {
+            console.log("Events Disconnected");
         }
-        rainbow.checked = state['rainbow'];
-        blink.checked = state['blink'];
-        twelveHour.checked = state['twelveHour'];
-    } catch (error) {
-        console.error('Error parsing state:', error);
-    }
-  }, false);
-  source.addEventListener('heartbeat', function(e) {
-    console.log(new Date().toLocaleString(), " heartbeat", e.data);
-  }, false);
+    }, false);
+    source.addEventListener('state', function (e) {
+        console.log("state", e.data);
+        try {
+            // {"color":{"h":16,"s":209,"v":192},"rainbow":false,"blink":false,"twelveHour":false,"timeZone":"America/Chicago"}
+            const state = JSON.parse(e.data);
+            hueRange.value = state['color']['h'];
+            satRange.value = state['color']['s'];
+            valRange.value = state['color']['v'];
+            updateBackground();
+            if (state['timeZone']) {
+                timeZoneSelect.value = state['timeZone'];
+            } else {
+                // no time zone set--default to Automatic
+                timeZoneSelect.value = timeZoneSelect.options[0].value;
+            }
+            rainbow.checked = state['rainbow'];
+            blink.checked = state['blink'];
+            twelveHour.checked = state['twelveHour'];
+        } catch (error) {
+            console.error('Error parsing state:', error);
+        }
+    }, false);
+    source.addEventListener('heartbeat', function (e) {
+        console.log(new Date().toLocaleString(), " heartbeat", e.data);
+    }, false);
 }
