@@ -14,14 +14,16 @@
 #define NUM_LEDS_PER_SEGMENT 1
 #define NUM_LEDS_HOUR (14 * NUM_LEDS_PER_SEGMENT) + 1
 #define NUM_LEDS_MINUTE (28 * NUM_LEDS_PER_SEGMENT) + 3
-#define PIN_HOUR 0
-#define PIN_MINUTE 1
+#define PIN_HOUR 1
+#define PIN_MINUTE 0
 #define PIN_BUILTIN 7
 
 // LED
 CRGB ledsBuiltin[1];
 CRGB ledsHour[NUM_LEDS_HOUR];
 CRGB ledsMinute[NUM_LEDS_MINUTE];
+CHSV ledsHourHsv[NUM_LEDS_HOUR];      // parallel array for logic
+CHSV ledsMinuteHsv[NUM_LEDS_MINUTE];  // parallel array for logic
 CHSV fromColor = CHSV(0, 0, 0);
 CHSV toColor = CHSV(0, 0, 0);
 CHSV currentColor = CHSV(0, 0, 0);
@@ -61,6 +63,10 @@ static AsyncWebServer server(80);
 static AsyncEventSource events("/events");
 Preferences prefs;
 hp_BH1750 BH1750;
+
+// piezo buzzer
+const int TONE_OUTPUT_PIN = 4;
+const int TONE_PWM_CHANNEL = 0;
 
 /**
   * @brief Generic handler for server requests tied to bool preferences.
@@ -206,6 +212,9 @@ void setup() {
 
   LittleFS.begin();
 
+  // initialize piezo buzzer output
+  ledcAttachPin(TONE_OUTPUT_PIN, TONE_PWM_CHANNEL);
+
   bool avail = BH1750.begin(BH1750_TO_GROUND);
   if (!avail) {
     Serial.println("No BH1750 sensor found!");
@@ -273,12 +282,18 @@ void setup() {
   uint64_t chipid = ESP.getEfuseMac();                                       // Get the 64-bit Chip ID from the ESP32 hardware
   snprintf(chipIdStr, sizeof(chipIdStr), "%08X", (uint32_t)(chipid >> 32));  // convert the lower 4 bytes to hex
   String customSSID = "7SClock-" + String(chipIdStr);                        // Results in "7SClock-1234ABCD
-  bool res;
-  res = wm.autoConnect(customSSID.c_str());
+  // bool res = wm.autoConnect(customSSID.c_str()); // TODO restore when able to connect
+  bool res = false;  // TODO remove when able to connect
 
   if (!res) {
     Serial.println("Failed to connect");
     // ESP.restart();
+
+    // turn off built in LED
+    ledsBuiltin[0] = CRGB::Black;
+    FastLED.show();
+
+    return;
   } else {
     //if you get here you have connected to the WiFi
     Serial.println("connected...yeey :)");
@@ -455,13 +470,24 @@ void setup() {
   FastLED.show();
 }
 
+// returns local time information (hour, minute, second)
+struct tm getTimeInfo() {
+  struct tm timeInfo;
+  if (!getLocalTime(&timeInfo, 0)) {  // by default this could block for up to 5 seconds--set to 0 to avoid waiting at all
+    time_t now;
+    // Get current time since epoch (will be 1970 if never synced)
+    time(&now);
+    // Convert to local time structure
+    localtime_r(&now, &timeInfo);
+  }
+
+  return timeInfo;
+}
+
 // Function that prints formatted time
 void printTime() {
-  struct tm timeinfo;
-  if (!getLocalTime(&timeinfo)) {
-    Serial.println("Failed to obtain time");
-    return;
-  }
+  struct tm timeInfo = getTimeInfo();
+
   // struct tm timeinfo;
   // getLocalTime(&timeinfo);
   // int currentMinute = timeinfo.tm_min;  // Range: 0-59
@@ -471,12 +497,24 @@ void printTime() {
   // Serial.print("Current Second: ");
   // Serial.println(currentSecond);
   char formattedTime[80];  // Buffer to store the formatted string
-  strftime(formattedTime, sizeof(formattedTime), "%H:%M:%S", &timeinfo);
+  strftime(formattedTime, sizeof(formattedTime), "%H:%M:%S", &timeInfo);
   Serial.println(formattedTime);
 }
 
 boolean first = true;
+uint8_t octave = 0;
 void loop() {
+  EVERY_N_BSECONDS(1) {
+    // can only handle octave 2 to 8
+    // for octave 0 or 1, get this error: "ledc: requested frequency and duty resolution can not be achieved, try reducing freq_hz or duty_resolution."
+    octave = max((octave + 1) % 9, 2);
+    // Serial.print("octave:");
+    // Serial.println(octave);
+    // ledcWriteNote(TONE_PWM_CHANNEL, NOTE_C, octave);
+    ledcWriteTone(TONE_PWM_CHANNEL, 0);
+    ledcDetachPin(TONE_OUTPUT_PIN);  // use ledcDetach() for Core 3.x
+  }
+
   if (first) {  // super dramatic fade in effect
     fading = true;
     first = false;
@@ -492,6 +530,8 @@ void loop() {
 
   if (BH1750.hasValue()) {
     float lux = BH1750.getLux();
+    // Serial.print("lux:");
+    // Serial.println(lux);
     BH1750.start();
   }
 
@@ -518,28 +558,386 @@ void saveColorChange() {
 
 // sets the current color on the appropriate LEDs, based on the current time
 void updateLeds() {
-  // colons and built-in LED
-  CRGB colonColor;
-  if (millis() % 1000 < 500 || !blinkEnabled) {
-    // first half of second: on
-    colonColor = currentColor;
-  } else {
-    // last half of second: off
-    colonColor = CRGB::Black;
+  // set everything to black
+  fill_solid(ledsHourHsv, NUM_LEDS_HOUR, CHSV(0, 0, 0));
+  fill_solid(ledsMinuteHsv, NUM_LEDS_MINUTE, CHSV(0, 0, 0));
+
+  // set colons to currentColor (if not off due to blink)
+  struct timeval tv;
+  gettimeofday(&tv, NULL);  // get UTC time info with microsecond precision -- we can't use millis() here because that is based on uptime rather than the NTP synced time
+  if ((tv.tv_usec / 1000) % 1000 < 500 || !blinkEnabled) {
+    // blink: colons are lit for the first half of the second
+    ledsHourHsv[0] = currentColor;
+    ledsMinuteHsv[0] = currentColor;
+    ledsMinuteHsv[(14 * NUM_LEDS_PER_SEGMENT) + 1] = currentColor;
+    ledsMinuteHsv[(14 * NUM_LEDS_PER_SEGMENT) + 2] = currentColor;
   }
-  ledsBuiltin[0] = colonColor;
-  ledsHour[0] = colonColor;
-  ledsMinute[0] = colonColor;
-  ledsMinute[(14 * NUM_LEDS_PER_SEGMENT) + 1] = colonColor;
-  ledsMinute[(14 * NUM_LEDS_PER_SEGMENT) + 2] = colonColor;
 
-  // hour strip
-  // TODO
+  // get current time
+  struct tm timeInfo = getTimeInfo();
 
-  // minute strip
-  // TODO
+  // set hour digits to currentColor
+  int hour = timeInfo.tm_hour;
+  if (twelveHour) {
+    if (hour > 12) {
+      hour -= 12;
+    } else if (hour == 0) {
+      hour = 12;
+    }
+  }
+  if (hour >= 10 || !twelveHour) {
+    displayHourDigit(7 * NUM_LEDS_PER_SEGMENT + 1, hour / 10);  // first digit
+  }
+  displayHourDigit(1, hour % 10);  // second digit
+
+  // set minute digits to currentColor
+  int minute = timeInfo.tm_min;
+  displayMinuteDigit(1, minute / 10);                             // first digit
+  displayMinuteDigit(7 * NUM_LEDS_PER_SEGMENT + 1, minute % 10);  // second digit
+
+  // set second digits to currentColor
+  int second = timeInfo.tm_sec;
+  displayMinuteDigit((14 * NUM_LEDS_PER_SEGMENT) + 3, second / 10);  // first digit
+  displayMinuteDigit((21 * NUM_LEDS_PER_SEGMENT) + 3, second % 10);  // second digit
+
+  // vertical rainbow: shift hue by row
+  bool verticalRainbow = true;  // TODO make a preference
+  if (verticalRainbow) {
+    int hueShift = 0;
+
+    // row -2
+    hueShift = -102;  // 255/5*-2
+    shiftHueSegment(ledsHourHsv, 1, 1, hueShift);
+    shiftHueSegment(ledsHourHsv, 1, 8, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 1, 5, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 1, 12, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 3, 19, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 3, 26, hueShift);
+
+    // row -1
+    hueShift = -51;  // 255/5*-1
+    shiftHueSegment(ledsHourHsv, 1, 0, hueShift);
+    shiftHueSegment(ledsHourHsv, 1, 2, hueShift);
+    shiftHueSegment(ledsHourHsv, 1, 7, hueShift);
+    shiftHueSegment(ledsHourHsv, 1, 9, hueShift);
+    shiftHueSingleLed(ledsMinuteHsv, 0, hueShift);  // top colon between HH:MM
+    shiftHueSegment(ledsMinuteHsv, 1, 4, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 1, 6, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 1, 11, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 1, 13, hueShift);
+    shiftHueSingleLed(ledsMinuteHsv, 14 * NUM_LEDS_PER_SEGMENT + 2, hueShift);  // top colon between MM:SS
+    shiftHueSegment(ledsMinuteHsv, 3, 18, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 3, 20, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 3, 25, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 3, 27, hueShift);
+
+    // row +1
+    hueShift = 51;                                // 255/5*1
+    shiftHueSingleLed(ledsHourHsv, 0, hueShift);  // bottom colon between HH:MM
+    shiftHueSegment(ledsHourHsv, 1, 4, hueShift);
+    shiftHueSegment(ledsHourHsv, 1, 6, hueShift);
+    shiftHueSegment(ledsHourHsv, 1, 11, hueShift);
+    shiftHueSegment(ledsHourHsv, 1, 13, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 1, 0, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 1, 2, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 1, 7, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 1, 9, hueShift);
+    shiftHueSingleLed(ledsMinuteHsv, 14 * NUM_LEDS_PER_SEGMENT + 1, hueShift);  // bottom colon between MM:SS
+    shiftHueSegment(ledsMinuteHsv, 3, 14, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 3, 16, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 3, 21, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 3, 23, hueShift);
+
+    // row +2
+    hueShift = 102;  // 255/5*2
+    shiftHueSegment(ledsHourHsv, 1, 5, hueShift);
+    shiftHueSegment(ledsHourHsv, 1, 12, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 1, 1, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 1, 8, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 3, 15, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 3, 22, hueShift);
+  }
+
+  // horizontal rainbow: shift hue by column
+  bool horizontalRainbow = true;  // TODO make a preference
+  if (horizontalRainbow) {
+    int hueShift = 0;
+
+    // column -6
+    hueShift = -118;  // 255/13*-6;
+    shiftHueSegment(ledsHourHsv, 1, 9, hueShift);
+    shiftHueSegment(ledsHourHsv, 1, 13, hueShift);
+
+    // column -5
+    hueShift = -98;  // 255/13*-5
+    shiftHueSegment(ledsHourHsv, 1, 8, hueShift);
+    shiftHueSegment(ledsHourHsv, 1, 10, hueShift);
+    shiftHueSegment(ledsHourHsv, 1, 12, hueShift);
+
+    // column -4
+    hueShift = -78;  // 255/13*-4
+    shiftHueSegment(ledsHourHsv, 1, 7, hueShift);
+    shiftHueSegment(ledsHourHsv, 1, 11, hueShift);
+
+    // column -3
+    hueShift = -59;  // 255/13*-3
+    shiftHueSegment(ledsHourHsv, 1, 2, hueShift);
+    shiftHueSegment(ledsHourHsv, 1, 6, hueShift);
+
+    // column -2
+    hueShift = -39;  // 255/13*-2
+    shiftHueSegment(ledsHourHsv, 1, 1, hueShift);
+    shiftHueSegment(ledsHourHsv, 1, 3, hueShift);
+    shiftHueSegment(ledsHourHsv, 1, 5, hueShift);
+
+    // column -1
+    hueShift = -20;  // 255/13*-1
+    shiftHueSegment(ledsHourHsv, 1, 0, hueShift);
+    shiftHueSegment(ledsHourHsv, 1, 4, hueShift);
+
+    // column +1
+    hueShift = 20;  // 255/13*1
+    shiftHueSegment(ledsMinuteHsv, 1, 0, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 1, 4, hueShift);
+
+    // column +2
+    hueShift = 39;  // 255/13*2
+    shiftHueSegment(ledsMinuteHsv, 1, 1, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 1, 3, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 1, 5, hueShift);
+
+    // column +3
+    hueShift = 59;  // 255/13*3
+    shiftHueSegment(ledsMinuteHsv, 1, 2, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 1, 6, hueShift);
+
+    // column +4
+    hueShift = 78;  // 255/13*4
+    shiftHueSegment(ledsMinuteHsv, 1, 7, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 1, 11, hueShift);
+
+    // column +5
+    hueShift = 98;  // 255/13*5
+    shiftHueSegment(ledsMinuteHsv, 1, 8, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 1, 10, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 1, 12, hueShift);
+
+    // column +6
+    hueShift = 118;  // 255/13*6
+    shiftHueSegment(ledsMinuteHsv, 1, 9, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 1, 13, hueShift);
+
+    // column +7
+    hueShift = 137;                                                             // 255/13*7
+    shiftHueSingleLed(ledsMinuteHsv, 14 * NUM_LEDS_PER_SEGMENT + 1, hueShift);  // bottom colon between MM:SS
+    shiftHueSingleLed(ledsMinuteHsv, 14 * NUM_LEDS_PER_SEGMENT + 2, hueShift);  // bottom colon between MM:SS
+
+    // column +8
+    hueShift = 157;  // 255/13*8
+    shiftHueSegment(ledsMinuteHsv, 3, 14, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 3, 18, hueShift);
+
+    // column +9
+    hueShift = 177;  // 255/13*9
+    shiftHueSegment(ledsMinuteHsv, 3, 15, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 3, 17, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 3, 19, hueShift);
+
+    // column +10
+    hueShift = 196;  // 255/13*10
+    shiftHueSegment(ledsMinuteHsv, 3, 16, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 3, 20, hueShift);
+
+    // column +11
+    hueShift = 216;  // 255/13*11
+    shiftHueSegment(ledsMinuteHsv, 3, 21, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 3, 25, hueShift);
+
+    // column +12
+    hueShift = 235;  // 255/13*12
+    shiftHueSegment(ledsMinuteHsv, 3, 22, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 3, 24, hueShift);
+    shiftHueSegment(ledsMinuteHsv, 3, 26, hueShift);
+  }
+
+  // Sync the HSV and RGB arrays (converts HSV to RGB)
+  for (int i = 0; i < NUM_LEDS_HOUR; i++) {
+    ledsHour[i] = ledsHourHsv[i];
+  }
+  for (int i = 0; i < NUM_LEDS_MINUTE; i++) {
+    ledsMinute[i] = ledsMinuteHsv[i];
+  }
 
   FastLED.show();
+}
+
+void shiftHueSingleLed(struct CHSV* leds, int index, int hueShift) {
+  leds[index].hue += hueShift;
+}
+
+void shiftHueSegment(struct CHSV* leds, int offset, int segmentIndex, int hueShift) {
+  int startIndex = offset + segmentIndex * NUM_LEDS_PER_SEGMENT;
+  for (int i = startIndex; i < startIndex + NUM_LEDS_PER_SEGMENT; i++) {  // for each LED in the segment
+    shiftHueSingleLed(leds, i, hueShift);
+  }
+}
+
+void fillSegment(struct CHSV* leds, int offset, int segmentIndex) {
+  fill_solid(leds + offset + segmentIndex * NUM_LEDS_PER_SEGMENT, NUM_LEDS_PER_SEGMENT, currentColor);
+}
+
+/**
+   sets the proper LEDs to the current color to display a digit on the hour (left) side of the controller, assuming that all LEDs for the digit are already set to black
+*/
+void displayHourDigit(int offset, int digit) {
+  switch (digit) {
+    case 0:
+      fillSegment(ledsHourHsv, offset, 0);
+      fillSegment(ledsHourHsv, offset, 1);
+      fillSegment(ledsHourHsv, offset, 2);
+      fillSegment(ledsHourHsv, offset, 4);
+      fillSegment(ledsHourHsv, offset, 5);
+      fillSegment(ledsHourHsv, offset, 6);
+      break;
+    case 1:
+      fillSegment(ledsHourHsv, offset, 0);
+      fillSegment(ledsHourHsv, offset, 4);
+      break;
+    case 2:
+      fillSegment(ledsHourHsv, offset, 0);
+      fillSegment(ledsHourHsv, offset, 1);
+      fillSegment(ledsHourHsv, offset, 3);
+      fillSegment(ledsHourHsv, offset, 5);
+      fillSegment(ledsHourHsv, offset, 6);
+      break;
+    case 3:
+      fillSegment(ledsHourHsv, offset, 0);
+      fillSegment(ledsHourHsv, offset, 1);
+      fillSegment(ledsHourHsv, offset, 3);
+      fillSegment(ledsHourHsv, offset, 4);
+      fillSegment(ledsHourHsv, offset, 5);
+      break;
+    case 4:
+      fillSegment(ledsHourHsv, offset, 0);
+      fillSegment(ledsHourHsv, offset, 2);
+      fillSegment(ledsHourHsv, offset, 3);
+      fillSegment(ledsHourHsv, offset, 4);
+      break;
+    case 5:
+      fillSegment(ledsHourHsv, offset, 1);
+      fillSegment(ledsHourHsv, offset, 2);
+      fillSegment(ledsHourHsv, offset, 3);
+      fillSegment(ledsHourHsv, offset, 4);
+      fillSegment(ledsHourHsv, offset, 5);
+      break;
+    case 6:
+      fillSegment(ledsHourHsv, offset, 1);
+      fillSegment(ledsHourHsv, offset, 2);
+      fillSegment(ledsHourHsv, offset, 3);
+      fillSegment(ledsHourHsv, offset, 4);
+      fillSegment(ledsHourHsv, offset, 5);
+      fillSegment(ledsHourHsv, offset, 6);
+      break;
+    case 7:
+      fillSegment(ledsHourHsv, offset, 0);
+      fillSegment(ledsHourHsv, offset, 1);
+      fillSegment(ledsHourHsv, offset, 4);
+      break;
+    case 8:
+      fillSegment(ledsHourHsv, offset, 0);
+      fillSegment(ledsHourHsv, offset, 1);
+      fillSegment(ledsHourHsv, offset, 2);
+      fillSegment(ledsHourHsv, offset, 3);
+      fillSegment(ledsHourHsv, offset, 4);
+      fillSegment(ledsHourHsv, offset, 5);
+      fillSegment(ledsHourHsv, offset, 6);
+      break;
+    case 9:
+      fillSegment(ledsHourHsv, offset, 0);
+      fillSegment(ledsHourHsv, offset, 1);
+      fillSegment(ledsHourHsv, offset, 2);
+      fillSegment(ledsHourHsv, offset, 3);
+      fillSegment(ledsHourHsv, offset, 4);
+      fillSegment(ledsHourHsv, offset, 5);
+      break;
+  }
+}
+
+/**
+   sets the proper LEDs to the current color to display a digit on the minute (right) side of the controller, assuming that all LEDs for the digit are already set to black
+*/
+void displayMinuteDigit(int offset, int digit) {
+  switch (digit) {
+    case 0:
+      fillSegment(ledsMinuteHsv, offset, 0);
+      fillSegment(ledsMinuteHsv, offset, 1);
+      fillSegment(ledsMinuteHsv, offset, 2);
+      fillSegment(ledsMinuteHsv, offset, 4);
+      fillSegment(ledsMinuteHsv, offset, 5);
+      fillSegment(ledsMinuteHsv, offset, 6);
+      break;
+    case 1:
+      fillSegment(ledsMinuteHsv, offset, 2);
+      fillSegment(ledsMinuteHsv, offset, 6);
+      break;
+    case 2:
+      fillSegment(ledsMinuteHsv, offset, 0);
+      fillSegment(ledsMinuteHsv, offset, 1);
+      fillSegment(ledsMinuteHsv, offset, 3);
+      fillSegment(ledsMinuteHsv, offset, 5);
+      fillSegment(ledsMinuteHsv, offset, 6);
+      break;
+    case 3:
+      fillSegment(ledsMinuteHsv, offset, 1);
+      fillSegment(ledsMinuteHsv, offset, 2);
+      fillSegment(ledsMinuteHsv, offset, 3);
+      fillSegment(ledsMinuteHsv, offset, 5);
+      fillSegment(ledsMinuteHsv, offset, 6);
+      break;
+    case 4:
+      fillSegment(ledsMinuteHsv, offset, 2);
+      fillSegment(ledsMinuteHsv, offset, 3);
+      fillSegment(ledsMinuteHsv, offset, 4);
+      fillSegment(ledsMinuteHsv, offset, 6);
+      break;
+    case 5:
+      fillSegment(ledsMinuteHsv, offset, 1);
+      fillSegment(ledsMinuteHsv, offset, 2);
+      fillSegment(ledsMinuteHsv, offset, 3);
+      fillSegment(ledsMinuteHsv, offset, 4);
+      fillSegment(ledsMinuteHsv, offset, 5);
+      break;
+    case 6:
+      fillSegment(ledsMinuteHsv, offset, 0);
+      fillSegment(ledsMinuteHsv, offset, 1);
+      fillSegment(ledsMinuteHsv, offset, 2);
+      fillSegment(ledsMinuteHsv, offset, 3);
+      fillSegment(ledsMinuteHsv, offset, 4);
+      fillSegment(ledsMinuteHsv, offset, 5);
+      break;
+    case 7:
+      fillSegment(ledsMinuteHsv, offset, 2);
+      fillSegment(ledsMinuteHsv, offset, 5);
+      fillSegment(ledsMinuteHsv, offset, 6);
+      break;
+    case 8:
+      fillSegment(ledsMinuteHsv, offset, 0);
+      fillSegment(ledsMinuteHsv, offset, 1);
+      fillSegment(ledsMinuteHsv, offset, 2);
+      fillSegment(ledsMinuteHsv, offset, 3);
+      fillSegment(ledsMinuteHsv, offset, 4);
+      fillSegment(ledsMinuteHsv, offset, 5);
+      fillSegment(ledsMinuteHsv, offset, 6);
+      break;
+    case 9:
+      fillSegment(ledsMinuteHsv, offset, 1);
+      fillSegment(ledsMinuteHsv, offset, 2);
+      fillSegment(ledsMinuteHsv, offset, 3);
+      fillSegment(ledsMinuteHsv, offset, 4);
+      fillSegment(ledsMinuteHsv, offset, 5);
+      fillSegment(ledsMinuteHsv, offset, 6);
+      break;
+  }
 }
 
 // sets the target color
