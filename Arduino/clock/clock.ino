@@ -488,14 +488,6 @@ struct tm getTimeInfo() {
 void printTime() {
   struct tm timeInfo = getTimeInfo();
 
-  // struct tm timeinfo;
-  // getLocalTime(&timeinfo);
-  // int currentMinute = timeinfo.tm_min;  // Range: 0-59
-  // Serial.print("Current Minute: ");
-  // Serial.println(currentMinute);
-  // int currentSecond = timeinfo.tm_sec;  // Range: 0-59
-  // Serial.print("Current Second: ");
-  // Serial.println(currentSecond);
   char formattedTime[80];  // Buffer to store the formatted string
   strftime(formattedTime, sizeof(formattedTime), "%H:%M:%S", &timeInfo);
   Serial.println(formattedTime);
