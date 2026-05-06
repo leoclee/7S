@@ -474,8 +474,8 @@ void setup() {
 struct tm getTimeInfo() {
   struct tm timeInfo;
   if (!getLocalTime(&timeInfo, 0)) {  // by default this could block for up to 5 seconds--set to 0 to avoid waiting at all
+    // fallback: get current time since epoch (will be 1970 if never synced)
     time_t now;
-    // Get current time since epoch (will be 1970 if never synced)
     time(&now);
     // Convert to local time structure
     localtime_r(&now, &timeInfo);
@@ -484,13 +484,10 @@ struct tm getTimeInfo() {
   return timeInfo;
 }
 
-// Function that prints formatted time
+// prints formatted time
 void printTime() {
   struct tm timeInfo = getTimeInfo();
-
-  char formattedTime[80];  // Buffer to store the formatted string
-  strftime(formattedTime, sizeof(formattedTime), "%H:%M:%S", &timeInfo);
-  Serial.println(formattedTime);
+  Serial.println(&timeInfo, "%H:%M:%S");
 }
 
 boolean first = true;
@@ -516,6 +513,7 @@ void loop() {
   updateLeds();
   saveColorChange();
 
+  // periodically print the time (useful for debugging)
   EVERY_N_BSECONDS(30) {
     printTime();
   }
