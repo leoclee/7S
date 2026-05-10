@@ -10,6 +10,7 @@
 #include <LittleFS.h>
 #include <AsyncTCP.h>  // needed for ESPAsyncWebServer
 #include <ESPAsyncWebServer.h>
+#include <ArduinoOTA.h>
 
 #define NUM_LEDS_PER_SEGMENT 1
 #define NUM_LEDS_HOUR (14 * NUM_LEDS_PER_SEGMENT) + 1
@@ -264,8 +265,11 @@ void setup() {
   fromColor.saturation = toColor.saturation;
   fromColor.value = 0;
 
+  WiFi.mode(WIFI_STA);
+  WiFi.setTxPower(WIFI_POWER_8_5dBm); // C3 mini workaround from https://github.com/arendst/Tasmota/discussions/15443#discussioncomment-2755055
   //WiFiManager, Local intialization. Once its business is done, there is no need to keep it around
   WiFiManager wm;
+  delay(100); // Optional: add a small delay to let power stabilize
 
   // reset settings - wipe stored credentials for testing
   // these are stored by the esp library
@@ -282,8 +286,7 @@ void setup() {
   uint64_t chipid = ESP.getEfuseMac();                                       // Get the 64-bit Chip ID from the ESP32 hardware
   snprintf(chipIdStr, sizeof(chipIdStr), "%08X", (uint32_t)(chipid >> 32));  // convert the lower 4 bytes to hex
   String customSSID = "7SClock-" + String(chipIdStr);                        // Results in "7SClock-1234ABCD
-  // bool res = wm.autoConnect(customSSID.c_str()); // TODO restore when able to connect
-  bool res = false;  // TODO remove when able to connect
+  bool res = wm.autoConnect(customSSID.c_str());
 
   if (!res) {
     Serial.println("Failed to connect");
@@ -451,7 +454,7 @@ void setup() {
     request->send(204);
   });
   // static file handler
-  server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
+  server.serveStatic("/", LittleFS, "/web/").setDefaultFile("index.html");
 
   // SSE (Server-Sent Events)
   events.onConnect([](AsyncEventSourceClient* client) {
@@ -465,7 +468,28 @@ void setup() {
 
   server.begin();
 
-  // turn off built in LED
+  // ArduinoOTA: allows code/files to be updated over the network
+  ArduinoOTA.setHostname(customSSID.c_str()); // defaults to esp32-[ChipID]
+  // CRITICAL: Unmount LittleFS before the update starts to avoid memory panic or corrupted partition
+  ArduinoOTA.onStart([]() {
+    String type;
+    // Check if the update is for the sketch or the filesystem
+    if (ArduinoOTA.getCommand() == U_FLASH) {
+      type = "sketch";
+    } else { // U_SPIFFS (also used for LittleFS)
+      type = "filesystem";
+      LittleFS.end(); 
+    }
+
+    Serial.println("Start updating " + type);
+  });
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    ledsBuiltin[0] = CHSV(195,255, 128 + (progress * 127 / total)); // purple, gets brighter as it nears completion
+    FastLED.show();
+  });
+  ArduinoOTA.begin();
+
+  // turn off built-in LED
   ledsBuiltin[0] = CRGB::Black;
   FastLED.show();
 }
@@ -530,6 +554,8 @@ void loop() {
     uint32_t now = millis();
     events.send(String("💓 ") + now, "heartbeat", now);
   }
+
+  ArduinoOTA.handle();
 }
 
 // saves color to preferences, if necessary
@@ -591,7 +617,7 @@ void updateLeds() {
   displayMinuteDigit((21 * NUM_LEDS_PER_SEGMENT) + 3, second % 10);  // second digit
 
   // vertical rainbow: shift hue by row
-  bool verticalRainbow = true;  // TODO make a preference
+  bool verticalRainbow = false;  // TODO make a preference
   if (verticalRainbow) {
     int hueShift = 0;
 
@@ -649,7 +675,7 @@ void updateLeds() {
   }
 
   // horizontal rainbow: shift hue by column
-  bool horizontalRainbow = true;  // TODO make a preference
+  bool horizontalRainbow = false;  // TODO make a preference
   if (horizontalRainbow) {
     int hueShift = 0;
 

@@ -26,3 +26,4 @@ While starting up, the built-in WS2812B RGB LED on the C3 Mini will light solid 
 1. 🔴 Load preferences, set up LEDs, initialize sensors
 2. 🔵 Captive portal via access point awaiting WiFi setup (look for open WiFi SSID 7SClock-XXXXXXXX)
 3. 🟢 IP-based time zone detection, NTP sync
+4. 🟣 OTA update in progress
