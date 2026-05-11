@@ -61,10 +61,22 @@ hueRange.style.setProperty('--custom-bg', hueRangeBackground);
 updateBackground();
 
 
-const rainbow = document.getElementById("rainbow");
-rainbow.addEventListener('change', () => {
+const colorCycle = document.getElementById("colorCycle");
+colorCycle.addEventListener('change', () => {
     let xhr = new XMLHttpRequest();
-    xhr.open("PUT", "api/rainbow?enabled=" + rainbow.checked);
+    xhr.open("PUT", "api/colorCycle?enabled=" + colorCycle.checked);
+    xhr.send(this.value);
+});
+const hRainbow = document.getElementById("hRainbow");
+hRainbow.addEventListener('change', () => {
+    let xhr = new XMLHttpRequest();
+    xhr.open("PUT", "api/hRainbow?enabled=" + hRainbow.checked);
+    xhr.send(this.value);
+});
+const vRainbow = document.getElementById("vRainbow");
+vRainbow.addEventListener('change', () => {
+    let xhr = new XMLHttpRequest();
+    xhr.open("PUT", "api/vRainbow?enabled=" + vRainbow.checked);
     xhr.send(this.value);
 });
 const twelveHour = document.getElementById("twelveHour");
@@ -132,7 +144,7 @@ if (!!window.EventSource) {
     source.addEventListener('state', function (e) {
         console.log("state", e.data);
         try {
-            // {"color":{"h":16,"s":209,"v":192},"rainbow":false,"blink":false,"twelveHour":false,"timeZone":"America/Chicago"}
+            // {"color":{"h":16,"s":209,"v":192},"colorCycle":false,"vRainbow":false,"hRainbow":false,"blink":false,"twelveHour":false,"timeZone":"America/Chicago"}
             const state = JSON.parse(e.data);
             hueRange.value = state['color']['h'];
             satRange.value = state['color']['s'];
@@ -144,7 +156,9 @@ if (!!window.EventSource) {
                 // no time zone set--default to Automatic
                 timeZoneSelect.value = timeZoneSelect.options[0].value;
             }
-            rainbow.checked = state['rainbow'];
+            colorCycle.checked = state['colorCycle'];
+            hRainbow.checked = state['hRainbow'];
+            vRainbow.checked = state['vRainbow'];
             blink.checked = state['blink'];
             twelveHour.checked = state['twelveHour'];
         } catch (error) {

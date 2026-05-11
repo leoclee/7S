@@ -32,13 +32,15 @@ CHSV savedColor;
 unsigned long lastColorChangeTime = 0;
 unsigned long colorSaveInterval = 15000;  // milliseconds to wait for a color change to trigger a save
 
-bool fading = false;           // true when transitioning between requested colors; false otherwise
-uint8_t lerp = 0;              // used to keep track of fade progress
-bool blinkEnabled = false;     // true to indicate half-second colon blinking
-bool rainbowEnabled = false;   // true to slowly change hues instead of the static selected color
-uint8_t rainbowHueOffset = 0;  // used to keep track of hue offset when rainbow color mode enabled
-bool twelveHour = false;       // true: 12-hour format; false: 24-hour/military format; 24-hour time format is more popular worldwide
-String timeZoneState = "";     // IANA time zone ID to maintain state ("": auto, even though a real IANA time zone ID might be in use)
+bool fading = false;             // true when transitioning between requested colors; false otherwise
+uint8_t lerp = 0;                // used to keep track of fade progress
+bool blinkEnabled = false;       // true to indicate half-second colon blinking
+bool colorCycleEnabled = false;     // true to slowly change hues instead of the static selected color
+uint8_t colorCycleHueOffset = 0;    // used to keep track of hue offset when color cycle mode enabled
+bool twelveHour = false;         // true: 12-hour format; false: 24-hour/military format; 24-hour time format is more popular worldwide
+bool verticalRainbow = false;    // shift hue by row
+bool horizontalRainbow = false;  // shift hue by column
+String timeZoneState = "";       // IANA time zone ID to maintain state ("": auto, even though a real IANA time zone ID might be in use)
 
 // This is a Google Trust Services cert, the root Certificate Authority that
 // signed the server certificate for https://ipwho.is This certificate is
@@ -253,9 +255,15 @@ void setup() {
   blinkEnabled = prefs.getBool("blink", false);
   Serial.print("blink=");
   Serial.println(blinkEnabled ? "true" : "false");
-  rainbowEnabled = prefs.getBool("rainbow", false);
-  Serial.print("rainbow=");
-  Serial.println(rainbowEnabled ? "true" : "false");
+  colorCycleEnabled = prefs.getBool("colorCycle", false);
+  Serial.print("colorCycle=");
+  Serial.println(colorCycleEnabled ? "true" : "false");
+  horizontalRainbow = prefs.getBool("hRainbow", false);
+  Serial.print("hRainbow=");
+  Serial.println(horizontalRainbow ? "true" : "false");
+  verticalRainbow = prefs.getBool("vRainbow", false);
+  Serial.print("vRainbow=");
+  Serial.println(verticalRainbow ? "true" : "false");
   twelveHour = prefs.getBool("twelveHour", false);
   Serial.print("twelveHour=");
   Serial.println(twelveHour ? "true" : "false");
@@ -266,10 +274,10 @@ void setup() {
   fromColor.value = 0;
 
   WiFi.mode(WIFI_STA);
-  WiFi.setTxPower(WIFI_POWER_8_5dBm); // C3 mini workaround from https://github.com/arendst/Tasmota/discussions/15443#discussioncomment-2755055
+  WiFi.setTxPower(WIFI_POWER_8_5dBm);  // C3 mini workaround from https://github.com/arendst/Tasmota/discussions/15443#discussioncomment-2755055
   //WiFiManager, Local intialization. Once its business is done, there is no need to keep it around
   WiFiManager wm;
-  delay(100); // Optional: add a small delay to let power stabilize
+  delay(100);  // Optional: add a small delay to let power stabilize
 
   // reset settings - wipe stored credentials for testing
   // these are stored by the esp library
@@ -367,19 +375,27 @@ void setup() {
     setColor(h.toInt(), s.toInt(), v.toInt());
     request->send(204);
   });
-  // curl -X PUT "http://{{IPADDRESS}}/api/rainbow?enabled=true"
-  server.on("/api/rainbow", HTTP_PUT, [](AsyncWebServerRequest* request) {
+  // curl -X PUT "http://{{IPADDRESS}}/api/colorCycle?enabled=true"
+  server.on("/api/colorCycle", HTTP_PUT, [](AsyncWebServerRequest* request) {
     handleBoolPreference(
-      request, "rainbow", rainbowEnabled, []() {
-        // post-enable callback logic: this is needed because when we first start rainbow mode, we want the hue offset to be 0 so that it starts transitioning from the static color
-        rainbowHueOffset = 0;
+      request, "colorCycle", colorCycleEnabled, []() {
+        // post-enable callback logic: this is needed because when we first start color cycle mode, we want the hue offset to be 0 so that it starts transitioning from the static color
+        colorCycleHueOffset = 0;
       },
       []() {
-        // post-disable callback logic: this is needed because there is nothing that reverts the currentColor back when coming out of rainbow mode
+        // post-disable callback logic: this is needed because there is nothing that reverts the currentColor back when coming out of color cycle mode
         if (!fading) {
           currentColor = toColor;
         }
       });
+  });
+  // curl -X PUT "http://{{IPADDRESS}}/api/hRainbow?enabled=true"
+  server.on("/api/hRainbow", HTTP_PUT, [](AsyncWebServerRequest* request) {
+    handleBoolPreference(request, "hRainbow", horizontalRainbow);
+  });
+  // curl -X PUT "http://{{IPADDRESS}}/api/vRainbow?enabled=true"
+  server.on("/api/vRainbow", HTTP_PUT, [](AsyncWebServerRequest* request) {
+    handleBoolPreference(request, "vRainbow", verticalRainbow);
   });
   // curl -X PUT "http://{{IPADDRESS}}/api/blink?enabled=true"
   server.on("/api/blink", HTTP_PUT, [](AsyncWebServerRequest* request) {
@@ -469,22 +485,22 @@ void setup() {
   server.begin();
 
   // ArduinoOTA: allows code/files to be updated over the network
-  ArduinoOTA.setHostname(customSSID.c_str()); // defaults to esp32-[ChipID]
+  ArduinoOTA.setHostname(customSSID.c_str());  // defaults to esp32-[ChipID]
   // CRITICAL: Unmount LittleFS before the update starts to avoid memory panic or corrupted partition
   ArduinoOTA.onStart([]() {
     String type;
     // Check if the update is for the sketch or the filesystem
     if (ArduinoOTA.getCommand() == U_FLASH) {
       type = "sketch";
-    } else { // U_SPIFFS (also used for LittleFS)
+    } else {  // U_SPIFFS (also used for LittleFS)
       type = "filesystem";
-      LittleFS.end(); 
+      LittleFS.end();
     }
 
     Serial.println("Start updating " + type);
   });
   ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-    ledsBuiltin[0] = CHSV(195,255, 128 + (progress * 127 / total)); // purple, gets brighter as it nears completion
+    ledsBuiltin[0] = CHSV(195, 255, 128 + (progress * 127 / total));  // purple, gets brighter as it nears completion
     FastLED.show();
   });
   ArduinoOTA.begin();
@@ -533,7 +549,7 @@ void loop() {
     first = false;
   }
   updateColor();
-  updateRainbow();
+  updateColorCycle();
   updateLeds();
   saveColorChange();
 
@@ -617,7 +633,6 @@ void updateLeds() {
   displayMinuteDigit((21 * NUM_LEDS_PER_SEGMENT) + 3, second % 10);  // second digit
 
   // vertical rainbow: shift hue by row
-  bool verticalRainbow = false;  // TODO make a preference
   if (verticalRainbow) {
     int hueShift = 0;
 
@@ -675,7 +690,6 @@ void updateLeds() {
   }
 
   // horizontal rainbow: shift hue by column
-  bool horizontalRainbow = false;  // TODO make a preference
   if (horizontalRainbow) {
     int hueShift = 0;
 
@@ -981,12 +995,12 @@ void setColor(uint8_t hue, uint8_t saturation, uint8_t value) {
   sendState();
 }
 
-// sets the current color based on fade, rainbow, etc.
+// sets the current color based on fade, color cycle, etc.
 void updateColor() {
   if (fading) {
     if (lerp < 255) {
-      if (rainbowEnabled) {
-        currentColor = blend(fromColor, CHSV(toColor.hue + rainbowHueOffset, toColor.saturation, toColor.value), ++lerp);
+      if (colorCycleEnabled) {
+        currentColor = blend(fromColor, CHSV(toColor.hue + colorCycleHueOffset, toColor.saturation, toColor.value), ++lerp);
       } else {
         currentColor = blend(fromColor, toColor, ++lerp);
       }
@@ -994,16 +1008,16 @@ void updateColor() {
       Serial.println("done fading");
       fading = false;
     }
-  } else if (rainbowEnabled) {
-    currentColor.hue = toColor.hue + rainbowHueOffset;
+  } else if (colorCycleEnabled) {
+    currentColor.hue = toColor.hue + colorCycleHueOffset;
   }
 }
 
-void updateRainbow() {
-  if (rainbowEnabled) {
+void updateColorCycle() {
+  if (colorCycleEnabled) {
     // this controls the speed of color change; at 100ms, it takes 25.5 seconds to cycle through all hue values
     EVERY_N_MILLIS(100) {
-      rainbowHueOffset++;
+      colorCycleHueOffset++;
     }
   }
 }
@@ -1030,8 +1044,12 @@ String getState() {
   stateJson += toColor.saturation;
   stateJson += ",\"v\":";
   stateJson += toColor.value;
-  stateJson += "},\"rainbow\":";
-  stateJson += rainbowEnabled ? "true" : "false";
+  stateJson += "},\"colorCycle\":";
+  stateJson += colorCycleEnabled ? "true" : "false";
+  stateJson += ",\"hRainbow\":";
+  stateJson += horizontalRainbow ? "true" : "false";
+  stateJson += ",\"vRainbow\":";
+  stateJson += verticalRainbow ? "true" : "false";
   stateJson += ",\"blink\":";
   stateJson += blinkEnabled ? "true" : "false";
   stateJson += ",\"twelveHour\":";
