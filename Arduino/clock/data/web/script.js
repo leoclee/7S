@@ -45,14 +45,14 @@ function changeColor() {
 
 hueRange.addEventListener("input", updateBackground);
 satRange.addEventListener("input", updateBackground);
-var throttledChangeColor = throttle(changeColor, 1000);
+const throttledChangeColor = throttle(changeColor, 1000);
 hueRange.addEventListener("input", throttledChangeColor);
 satRange.addEventListener("input", throttledChangeColor);
 valRange.addEventListener("input", throttledChangeColor);
 
 // generate rainbow gradient for hue range background
-var hueRangeBackground = "linear-gradient(to right";
-for (var i = 0; i <= 360; i += 60) {
+let hueRangeBackground = "linear-gradient(to right";
+for (let i = 0; i <= 360; i += 60) {
     hueRangeBackground += ",hsl(" + i + ",100%,50%)";
 }
 hueRangeBackground += ")";
@@ -101,7 +101,7 @@ tzDetect.addEventListener("click", () => {
         alert("unable to detect time zone");
         return;
     }
-    if (browserTz != timeZoneSelect.value) {
+    if (browserTz !== timeZoneSelect.value) {
         timeZoneSelect.value = browserTz;
         timeZoneSelect.dispatchEvent(new Event('change'));
     }
@@ -132,12 +132,12 @@ timeZoneSelect.addEventListener('change', () => {
 
 // Server-Sent Events (SSE)
 if (!!window.EventSource) {
-    var source = new EventSource('/events');
-    source.addEventListener('open', function (e) {
+    const source = new EventSource('/events');
+    source.addEventListener('open', function () {
         console.log("Events Connected");
     }, false);
     source.addEventListener('error', function (e) {
-        if (e.target.readyState != EventSource.OPEN) {
+        if (e.target.readyState !== EventSource.OPEN) {
             console.log("Events Disconnected");
         }
     }, false);
