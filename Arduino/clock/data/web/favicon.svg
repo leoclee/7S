@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 432 432">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: #1d232a;
+      }
+
+      .cls-2 {
+        fill: #ffbf00;
+      }
+    </style>
+  </defs>
+  <!-- Generator: Adobe Illustrator 28.6.0, SVG Export Plug-In . SVG Version: 1.2.0 Build 709)  -->
+  <g>
+    <g id="Layer_1">
+      <g id="Layer_1-2" data-name="Layer_1">
+        <g id="_x30_">
+          <rect class="cls-1" width="432" height="432" rx="54.2" ry="54.2"/>
+          <polygon class="cls-2" points="154.8 79.9 139.2 64.3 41.3 64.3 25.7 79.9 41.3 95.5 139.2 95.5 154.8 79.9"/>
+          <polygon class="cls-2" points="158.3 212.5 173.9 196.9 173.9 99 158.3 83.4 142.7 99 142.7 196.9 158.3 212.5"/>
+          <polygon class="cls-2" points="158.3 219.5 142.7 235.1 142.7 333 158.3 348.6 173.9 333 173.9 235.1 158.3 219.5"/>
+          <polygon class="cls-2" points="270.2 196.9 270.2 99 254.6 83.4 239 99 239 196.9 254.6 212.5 270.2 196.9"/>
+          <polygon class="cls-2" points="387.2 79.9 371.6 64.3 273.7 64.3 258.1 79.9 273.7 95.5 371.6 95.5 387.2 79.9"/>
+          <polygon class="cls-2" points="387.2 216 371.6 200.4 273.7 200.4 258.1 216 273.7 231.6 371.6 231.6 387.2 216"/>
+          <polygon class="cls-2" points="390.7 219.5 375.1 235.1 375.1 333 390.7 348.6 406.3 333 406.3 235.1 390.7 219.5"/>
+          <polygon class="cls-2" points="387.2 352.1 371.6 336.5 273.7 336.5 258.1 352.1 273.7 367.7 371.6 367.7 387.2 352.1"/>
+        </g>
+      </g>
+    </g>
+  </g>
+</svg>
