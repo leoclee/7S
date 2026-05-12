@@ -32,15 +32,15 @@ CHSV savedColor;
 unsigned long lastColorChangeTime = 0;
 unsigned long colorSaveInterval = 15000;  // milliseconds to wait for a color change to trigger a save
 
-bool fading = false;             // true when transitioning between requested colors; false otherwise
-uint8_t lerp = 0;                // used to keep track of fade progress
-bool blinkEnabled = false;       // true to indicate half-second colon blinking
-bool colorCycleEnabled = false;     // true to slowly change hues instead of the static selected color
-uint8_t colorCycleHueOffset = 0;    // used to keep track of hue offset when color cycle mode enabled
-bool twelveHour = false;         // true: 12-hour format; false: 24-hour/military format; 24-hour time format is more popular worldwide
-bool verticalRainbow = false;    // shift hue by row
-bool horizontalRainbow = false;  // shift hue by column
-String timeZoneState = "";       // IANA time zone ID to maintain state ("": auto, even though a real IANA time zone ID might be in use)
+bool fading = false;              // true when transitioning between requested colors; false otherwise
+uint8_t lerp = 0;                 // linear interpolation, used to keep track of fade progress
+bool blinkEnabled = false;        // true to indicate half-second colon blinking
+bool colorCycleEnabled = false;   // true to slowly change hues instead of the static selected color
+uint8_t colorCycleHueOffset = 0;  // used to keep track of hue offset when color cycle mode enabled
+bool twelveHour = false;          // true: 12-hour format; false: 24-hour/military format; 24-hour time format is more popular worldwide
+bool verticalRainbow = false;     // shift hue by row
+bool horizontalRainbow = false;   // shift hue by column
+String timeZoneState = "";        // IANA time zone ID to maintain state ("": auto, even though a real IANA time zone ID might be in use)
 
 // This is a Google Trust Services cert, the root Certificate Authority that
 // signed the server certificate for https://ipwho.is This certificate is
@@ -999,10 +999,18 @@ void setColor(uint8_t hue, uint8_t saturation, uint8_t value) {
 void updateColor() {
   if (fading) {
     if (lerp < 255) {
+      // increment lerp, independent of clock speed
+      EVERY_N_MILLISECONDS(6) {  // full transition in ~1.5 seconds (6ms * 255 = 1530 ms)
+        lerp++;
+      }
+
+      // more natural curve-based easing in/out
+      uint8_t smoothAmount = ease8InOutCubic(lerp);
+
       if (colorCycleEnabled) {
-        currentColor = blend(fromColor, CHSV(toColor.hue + colorCycleHueOffset, toColor.saturation, toColor.value), ++lerp);
+        currentColor = blend(fromColor, CHSV(toColor.hue + colorCycleHueOffset, toColor.saturation, toColor.value), smoothAmount);
       } else {
-        currentColor = blend(fromColor, toColor, ++lerp);
+        currentColor = blend(fromColor, toColor, smoothAmount);
       }
     } else {
       Serial.println("done fading");
