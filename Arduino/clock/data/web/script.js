@@ -97,8 +97,8 @@ const timeZoneSelect = document.getElementById("timeZone");
 const tzDetect = document.getElementById("tzDetect");
 tzDetect.addEventListener("click", () => {
     let browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    if (!browserTz || browserTz.startsWith("Etc") || browserTz === 'UTC') {
-        alert("unable to detect time zone");
+    if (!browserTz || browserTz === "Etc/Unknown") {
+        alert("unable to detect time zone or unsupported time zone: " + browserTz);
         return;
     }
     if (browserTz !== timeZoneSelect.value) {
@@ -108,7 +108,7 @@ tzDetect.addEventListener("click", () => {
 });
 const timeZones = Intl.supportedValuesOf('timeZone');
 for (const timeZone of timeZones) {
-    if (timeZone.startsWith("Etc") || timeZone === 'UTC') continue;
+    if (timeZone === "Etc/Unknown") continue;
     const option = document.createElement("option");
     option.textContent = timeZone;
     timeZoneSelect.appendChild(option);
