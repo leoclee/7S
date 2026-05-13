@@ -15,9 +15,19 @@
 #define NUM_LEDS_PER_SEGMENT 1
 #define NUM_LEDS_HOUR (14 * NUM_LEDS_PER_SEGMENT) + 1
 #define NUM_LEDS_MINUTE (28 * NUM_LEDS_PER_SEGMENT) + 3
+#if defined(ARDUINO_LOLIN_C3_MINI)
 #define PIN_HOUR 1
 #define PIN_MINUTE 0
 #define PIN_BUILTIN 7
+#define PIN_TONE_OUTPUT 4;
+#elif defined(ARDUINO_LOLIN_S3_MINI)
+#define PIN_HOUR 12
+#define PIN_MINUTE 13
+#define PIN_BUILTIN 47
+#define PIN_TONE_OUTPUT 11
+#else
+#error "Unsupported board!"
+#endif
 
 // LED
 CRGB ledsBuiltin[1];
@@ -33,7 +43,7 @@ unsigned long lastColorChangeTime = 0;
 unsigned long colorSaveInterval = 15000;  // milliseconds to wait for a color change to trigger a save
 
 bool fading = false;              // true when transitioning between requested colors; false otherwise
-uint8_t lerp = 0;                 // linear interpolation, used to keep track of fade progress
+uint8_t fadeLerp = 0;             // linear interpolation, used to keep track of fade progress
 bool blinkEnabled = false;        // true to indicate half-second colon blinking
 bool colorCycleEnabled = false;   // true to slowly change hues instead of the static selected color
 uint8_t colorCycleHueOffset = 0;  // used to keep track of hue offset when color cycle mode enabled
@@ -68,7 +78,6 @@ Preferences prefs;
 hp_BH1750 BH1750;
 
 // piezo buzzer
-const int TONE_OUTPUT_PIN = 4;
 const int TONE_PWM_CHANNEL = 0;
 
 /**
@@ -213,11 +222,13 @@ void wifiManagerConfigModeCallback(WiFiManager* wiFiManager) {
 void setup() {
   Serial.begin(115200);
 
+  // LittleFS is used to store web assets
   LittleFS.begin();
 
   // initialize piezo buzzer output
-  ledcAttachPin(TONE_OUTPUT_PIN, TONE_PWM_CHANNEL);
+  ledcAttachPin(PIN_TONE_OUTPUT, TONE_PWM_CHANNEL);
 
+  // BH1750 is used to read lux data from the GY-302 module (uses a BH1750 ambient light sensor IC)
   bool avail = BH1750.begin(BH1750_TO_GROUND);
   if (!avail) {
     Serial.println("No BH1750 sensor found!");
@@ -226,10 +237,17 @@ void setup() {
   BH1750.start();
 
   // initialize and reset LEDs
-  // delay(1); // leds sometimes not all resetting properly without this for some reason
   FastLED.addLeds<WS2812, PIN_HOUR, GRB>(ledsHour, NUM_LEDS_HOUR);
   FastLED.addLeds<WS2812, PIN_MINUTE, GRB>(ledsMinute, NUM_LEDS_MINUTE);
+#if defined(ARDUINO_LOLIN_C3_MINI)
+  // C3 Mini V2.1.0 uses GRB
   FastLED.addLeds<WS2812, PIN_BUILTIN, GRB>(ledsBuiltin, 1);
+#elif defined(ARDUINO_LOLIN_S3_MINI)
+  // S3 Mini V1.0.0 uses RGB
+  FastLED.addLeds<WS2812, PIN_BUILTIN, RGB>(ledsBuiltin, 1);
+#else
+#error "Unsupported board!"
+#endif
   // FastLED.setBrightness(25); // set global brightness which overrides V
   fill_solid(ledsHour, NUM_LEDS_HOUR, CRGB::Black);
   fill_solid(ledsMinute, NUM_LEDS_MINUTE, CRGB::Black);
@@ -273,11 +291,15 @@ void setup() {
   fromColor.saturation = toColor.saturation;
   fromColor.value = 0;
 
+#if defined(ARDUINO_LOLIN_C3_MINI)
   WiFi.mode(WIFI_STA);
   WiFi.setTxPower(WIFI_POWER_8_5dBm);  // C3 mini workaround from https://github.com/arendst/Tasmota/discussions/15443#discussioncomment-2755055
+#endif
   //WiFiManager, Local intialization. Once its business is done, there is no need to keep it around
   WiFiManager wm;
+#if defined(ARDUINO_LOLIN_C3_MINI)
   delay(100);  // Optional: add a small delay to let power stabilize
+#endif
 
   // reset settings - wipe stored credentials for testing
   // these are stored by the esp library
@@ -541,7 +563,7 @@ void loop() {
     // Serial.println(octave);
     // ledcWriteNote(TONE_PWM_CHANNEL, NOTE_C, octave);
     ledcWriteTone(TONE_PWM_CHANNEL, 0);
-    ledcDetachPin(TONE_OUTPUT_PIN);  // use ledcDetach() for Core 3.x
+    ledcDetachPin(PIN_TONE_OUTPUT);  // use ledcDetach() for Core 3.x
   }
 
   if (first) {  // super dramatic fade in effect
@@ -989,7 +1011,7 @@ void setColor(uint8_t hue, uint8_t saturation, uint8_t value) {
   toColor.hue = hue;
   toColor.saturation = saturation;
   toColor.value = value;
-  lerp = 0;
+  fadeLerp = 0;
   fading = true;
 
   sendState();
@@ -998,14 +1020,14 @@ void setColor(uint8_t hue, uint8_t saturation, uint8_t value) {
 // sets the current color based on fade, color cycle, etc.
 void updateColor() {
   if (fading) {
-    if (lerp < 255) {
-      // increment lerp, independent of clock speed
-      EVERY_N_MILLISECONDS(6) {  // full transition in ~1.5 seconds (6ms * 255 = 1530 ms)
-        lerp++;
+    if (fadeLerp < 255) {
+      // increment fadeLerp, independent of clock speed
+      EVERY_N_MILLISECONDS(6) {  // full transition in ~1.5 seconds (6 ms * 255 = 1.530 s)
+        fadeLerp++;
       }
 
       // more natural curve-based easing in/out
-      uint8_t smoothAmount = ease8InOutCubic(lerp);
+      uint8_t smoothAmount = ease8InOutCubic(fadeLerp);
 
       if (colorCycleEnabled) {
         currentColor = blend(fromColor, CHSV(toColor.hue + colorCycleHueOffset, toColor.saturation, toColor.value), smoothAmount);
@@ -1075,7 +1097,7 @@ String getState() {
 }
 
 /**
- * @brief Notifies connected clients of the current state after a change.
+ * @brief Notifies connected Server-Sent Events (SSE) clients of the current state after a change.
  */
 void sendState() {
   events.send(getState(), "state", millis());
