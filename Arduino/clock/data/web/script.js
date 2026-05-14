@@ -38,9 +38,7 @@ function changeColor() {
         v: valRange.value
     });
     console.log(params.toString());
-    let xhr = new XMLHttpRequest();
-    xhr.open("PUT", `api/color?${params.toString()}`);
-    xhr.send();
+    fetch(`api/color?${params.toString()}`, {method: 'PUT'});
 }
 
 hueRange.addEventListener("input", updateBackground);
@@ -61,35 +59,10 @@ hueRange.style.setProperty('--custom-bg', hueRangeBackground);
 updateBackground();
 
 
-const colorCycle = document.getElementById("colorCycle");
-colorCycle.addEventListener('change', () => {
-    let xhr = new XMLHttpRequest();
-    xhr.open("PUT", "api/colorCycle?enabled=" + colorCycle.checked);
-    xhr.send(this.value);
-});
-const hRainbow = document.getElementById("hRainbow");
-hRainbow.addEventListener('change', () => {
-    let xhr = new XMLHttpRequest();
-    xhr.open("PUT", "api/hRainbow?enabled=" + hRainbow.checked);
-    xhr.send(this.value);
-});
-const vRainbow = document.getElementById("vRainbow");
-vRainbow.addEventListener('change', () => {
-    let xhr = new XMLHttpRequest();
-    xhr.open("PUT", "api/vRainbow?enabled=" + vRainbow.checked);
-    xhr.send(this.value);
-});
-const twelveHour = document.getElementById("twelveHour");
-twelveHour.addEventListener('change', () => {
-    let xhr = new XMLHttpRequest();
-    xhr.open("PUT", "api/twelveHour?enabled=" + twelveHour.checked);
-    xhr.send(this.value);
-});
-const blink = document.getElementById("blink");
-blink.addEventListener('change', () => {
-    let xhr = new XMLHttpRequest();
-    xhr.open("PUT", "api/blink?enabled=" + blink.checked);
-    xhr.send(this.value);
+document.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+    checkbox.addEventListener('change', () => {
+        fetch(`api/${checkbox.id}?enabled=${checkbox.checked}`, {method: 'PUT'});
+    })
 });
 
 
@@ -119,14 +92,12 @@ timeZoneSelect.addEventListener('change', () => {
 
     if (tz === timeZoneSelect.options[0].value) {
         // remove time zone
-        let xhr = new XMLHttpRequest();
-        xhr.open("DELETE", "api/overrideTimeZone");
-        xhr.send(this.value);
+        fetch("api/overrideTimeZone", {method: 'DELETE'});
     } else {
         // set time zone
-        let xhr = new XMLHttpRequest();
-        xhr.open("PUT", "api/overrideTimeZone?value=" + tz);
-        xhr.send(this.value);
+        fetch("api/overrideTimeZone?value=" + tz, {method: 'PUT'}).then(response => {
+            if (response.status === 400) alert("unsupported time zone: " + tz);
+        });
     }
 });
 
@@ -156,11 +127,9 @@ if (!!window.EventSource) {
                 // no time zone set--default to Automatic
                 timeZoneSelect.value = timeZoneSelect.options[0].value;
             }
-            colorCycle.checked = state['colorCycle'];
-            hRainbow.checked = state['hRainbow'];
-            vRainbow.checked = state['vRainbow'];
-            blink.checked = state['blink'];
-            twelveHour.checked = state['twelveHour'];
+            document.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+                document.getElementById(checkbox.id).checked = state[checkbox.id];
+            });
         } catch (error) {
             console.error('Error parsing state:', error);
         }
